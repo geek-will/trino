@@ -15,6 +15,7 @@ package io.trino.plugin.hudi.split;
 
 import com.google.common.collect.ImmutableList;
 import io.trino.plugin.hive.HivePartitionKey;
+import io.trino.plugin.hudi.HudiFile;
 import io.trino.plugin.hudi.HudiSplit;
 import io.trino.plugin.hudi.HudiTableHandle;
 import io.trino.spi.TrinoException;
@@ -25,6 +26,7 @@ import org.apache.hudi.hadoop.PathWithBootstrapFileStatus;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 import static io.trino.plugin.hudi.HudiErrorCode.HUDI_CANNOT_OPEN_SPLIT;
@@ -57,11 +59,13 @@ public class HudiSplitFactory
 
         return splits.stream()
                 .map(fileSplit -> new HudiSplit(
-                        fileSplit.getPath().toString(),
-                        fileSplit.getStart(),
-                        fileSplit.getLength(),
-                        fileStatus.getLen(),
                         fileStatus.getModificationTime(),
+                        Optional.of(new HudiFile(
+                                fileSplit.getPath().toString(),
+                                fileSplit.getStart(),
+                                fileSplit.getLength(),
+                                fileStatus.getLen())),
+                        ImmutableList.of(),  // TODO: add logFiles of Hudi MOR table
                         ImmutableList.of(),
                         hudiTableHandle.getRegularPredicates(),
                         partitionKeys,

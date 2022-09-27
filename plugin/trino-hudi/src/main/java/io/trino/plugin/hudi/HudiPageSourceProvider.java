@@ -43,8 +43,10 @@ import io.trino.spi.connector.DynamicFilter;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.type.Decimals;
 import io.trino.spi.type.TypeSignature;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hudi.common.model.HoodieFileFormat;
+import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
 import org.apache.parquet.hadoop.metadata.FileMetaData;
@@ -86,11 +88,13 @@ import static io.trino.plugin.hudi.HudiErrorCode.HUDI_BAD_DATA;
 import static io.trino.plugin.hudi.HudiErrorCode.HUDI_CANNOT_OPEN_SPLIT;
 import static io.trino.plugin.hudi.HudiErrorCode.HUDI_CURSOR_ERROR;
 import static io.trino.plugin.hudi.HudiErrorCode.HUDI_INVALID_PARTITION_VALUE;
+import static io.trino.plugin.hudi.HudiErrorCode.HUDI_UNKNOWN_TABLE_TYPE;
 import static io.trino.plugin.hudi.HudiErrorCode.HUDI_UNSUPPORTED_FILE_FORMAT;
 import static io.trino.plugin.hudi.HudiSessionProperties.isParquetOptimizedNestedReaderEnabled;
 import static io.trino.plugin.hudi.HudiSessionProperties.isParquetOptimizedReaderEnabled;
 import static io.trino.plugin.hudi.HudiSessionProperties.shouldUseParquetColumnNames;
 import static io.trino.plugin.hudi.HudiUtil.getHudiFileFormat;
+import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.predicate.Utils.nativeValueToBlock;
 import static io.trino.spi.type.StandardTypes.BIGINT;
 import static io.trino.spi.type.StandardTypes.BOOLEAN;
@@ -145,13 +149,9 @@ public class HudiPageSourceProvider
             List<ColumnHandle> columns,
             DynamicFilter dynamicFilter)
     {
+        HudiTableHandle tableHandle = (HudiTableHandle) connectorTable;
+        HoodieTableType tableType = tableHandle.getTableType();
         HudiSplit split = (HudiSplit) connectorSplit;
-        Path path = new Path(split.getPath());
-        HoodieFileFormat hudiFileFormat = getHudiFileFormat(path.toString());
-        if (!HoodieFileFormat.PARQUET.equals(hudiFileFormat)) {
-            throw new TrinoException(HUDI_UNSUPPORTED_FILE_FORMAT, format("File format %s not supported", hudiFileFormat));
-        }
-
         List<HiveColumnHandle> hiveColumns = columns.stream()
                 .map(HiveColumnHandle.class::cast)
                 .collect(toList());
@@ -160,9 +160,27 @@ public class HudiPageSourceProvider
         List<HiveColumnHandle> regularColumns = hiveColumns.stream()
                 .filter(columnHandle -> !columnHandle.isPartitionKey() && !columnHandle.isHidden())
                 .collect(Collectors.toList());
-        TrinoFileSystem fileSystem = fileSystemFactory.create(session);
-        TrinoInputFile inputFile = fileSystem.newInputFile(path.toString(), split.getFileSize());
-        ConnectorPageSource dataPageSource = createPageSource(session, regularColumns, split, inputFile, dataSourceStats, options, timeZone);
+
+        final ConnectorPageSource dataPageSource;
+        if (tableType == HoodieTableType.COPY_ON_WRITE) {
+            HudiFile baseFile = split.getBaseFile().orElseThrow(() ->
+                    new TrinoException(HUDI_CANNOT_OPEN_SPLIT, "Split without base file is invalid"));
+            Path path = new Path(baseFile.getPath());
+            HoodieFileFormat hudiFileFormat = getHudiFileFormat(path.toString());
+            if (!HoodieFileFormat.PARQUET.equals(hudiFileFormat)) {
+                throw new TrinoException(HUDI_UNSUPPORTED_FILE_FORMAT, format("File format %s not supported", hudiFileFormat));
+            }
+
+            TrinoFileSystem fileSystem = fileSystemFactory.create(session);
+            TrinoInputFile inputFile = fileSystem.newInputFile(path.toString(), baseFile.getFileSize());
+            dataPageSource = createPageSource(session, regularColumns, split, inputFile, dataSourceStats, options, timeZone);
+        }
+        else if (tableType == HoodieTableType.MERGE_ON_READ) {
+            throw new TrinoException(NOT_SUPPORTED, "Could not create page source for table type " + tableType);
+        }
+        else {
+            throw new TrinoException(HUDI_UNKNOWN_TABLE_TYPE, "Could not create page source for table type " + tableType);
+        }
 
         return new HudiPageSource(
                 toPartitionName(split.getPartitionKeys()),
@@ -185,9 +203,11 @@ public class HudiPageSourceProvider
     {
         ParquetDataSource dataSource = null;
         boolean useColumnNames = shouldUseParquetColumnNames(session);
-        Path path = new Path(hudiSplit.getPath());
-        long start = hudiSplit.getStart();
-        long length = hudiSplit.getLength();
+        HudiFile baseFile = hudiSplit.getBaseFile().orElseThrow(() ->
+                new TrinoException(HUDI_CANNOT_OPEN_SPLIT, "Split without base file is invalid"));
+        Path path = new Path(baseFile.getPath());
+        long start = baseFile.getStart();
+        long length = baseFile.getLength();
         try {
             dataSource = new TrinoParquetDataSource(inputFile, options, dataSourceStats);
             ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, Optional.empty());
