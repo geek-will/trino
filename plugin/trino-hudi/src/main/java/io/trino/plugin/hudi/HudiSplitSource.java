@@ -22,6 +22,7 @@ import io.trino.plugin.hive.util.AsyncQueue;
 import io.trino.plugin.hive.util.ThrottledAsyncQueue;
 import io.trino.plugin.hudi.query.HudiDirectoryLister;
 import io.trino.plugin.hudi.query.HudiReadOptimizedDirectoryLister;
+import io.trino.plugin.hudi.query.HudiRealTimeDirectoryLister;
 import io.trino.plugin.hudi.split.HudiBackgroundSplitLoader;
 import io.trino.plugin.hudi.split.HudiSplitWeightProvider;
 import io.trino.plugin.hudi.split.SizeBasedSplitWeightProvider;
@@ -33,6 +34,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.engine.HoodieLocalEngineContext;
+import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 
 import java.util.List;
@@ -43,6 +45,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static io.airlift.concurrent.MoreFutures.toCompletableFuture;
+import static io.trino.plugin.hudi.HudiErrorCode.HUDI_UNKNOWN_TABLE_TYPE;
 import static io.trino.plugin.hudi.HudiSessionProperties.getMinimumAssignedSplitWeight;
 import static io.trino.plugin.hudi.HudiSessionProperties.getStandardSplitWeightSize;
 import static io.trino.plugin.hudi.HudiSessionProperties.isHudiMetadataEnabled;
@@ -77,14 +80,31 @@ public class HudiSplitSource
         List<HiveColumnHandle> partitionColumnHandles = table.getPartitionColumns().stream()
                 .map(column -> partitionColumnHandleMap.get(column.getName())).collect(toList());
 
-        HudiDirectoryLister hudiDirectoryLister = new HudiReadOptimizedDirectoryLister(
-                metadataConfig,
-                engineContext,
-                tableHandle,
-                metaClient,
-                metastore,
-                table,
-                partitionColumnHandles);
+        HoodieTableType tableType = tableHandle.getTableType();
+        final HudiDirectoryLister hudiDirectoryLister;
+        if (tableType == HoodieTableType.COPY_ON_WRITE) {
+            hudiDirectoryLister = new HudiReadOptimizedDirectoryLister(
+                    metadataConfig,
+                    engineContext,
+                    tableHandle,
+                    metaClient,
+                    metastore,
+                    table,
+                    partitionColumnHandles);
+        }
+        else if (tableType == HoodieTableType.MERGE_ON_READ) {
+            hudiDirectoryLister = new HudiRealTimeDirectoryLister(
+                    table,
+                    tableHandle,
+                    metastore,
+                    engineContext,
+                    metadataConfig,
+                    metaClient,
+                    partitionColumnHandles);
+        }
+        else {
+            throw new TrinoException(HUDI_UNKNOWN_TABLE_TYPE, "Could not create directory lister for table type " + tableType);
+        }
 
         this.queue = new ThrottledAsyncQueue<>(maxSplitsPerSecond, maxOutstandingSplits, executor);
         HudiBackgroundSplitLoader splitLoader = new HudiBackgroundSplitLoader(

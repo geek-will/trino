@@ -22,6 +22,7 @@ import io.trino.spi.TrinoException;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.mapred.FileSplit;
+import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.hadoop.PathWithBootstrapFileStatus;
 
 import java.io.IOException;
@@ -30,6 +31,7 @@ import java.util.Optional;
 import java.util.stream.Stream;
 
 import static io.trino.plugin.hudi.HudiErrorCode.HUDI_CANNOT_OPEN_SPLIT;
+import static io.trino.plugin.hudi.HudiUtil.getFileStatus;
 import static java.util.Objects.requireNonNull;
 
 public class HudiSplitFactory
@@ -47,8 +49,9 @@ public class HudiSplitFactory
         this.hudiSplitWeightProvider = requireNonNull(hudiSplitWeightProvider, "hudiSplitWeightProvider is null");
     }
 
-    public Stream<HudiSplit> createSplits(List<HivePartitionKey> partitionKeys, FileStatus fileStatus)
+    public Stream<HudiSplit> createSplits(List<HivePartitionKey> partitionKeys, FileSlice fileSlice)
     {
+        FileStatus fileStatus = getFileStatus(fileSlice.getBaseFile().get());
         List<FileSplit> splits;
         try {
             splits = createSplits(fileStatus);

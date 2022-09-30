@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package io.trino.plugin.hudi.query;
 
 import io.trino.plugin.hive.HiveColumnHandle;
@@ -25,6 +26,7 @@ import io.trino.plugin.hudi.partition.HudiPartitionInfo;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.TableNotFoundException;
 import io.trino.spi.predicate.TupleDomain;
+import org.apache.hadoop.fs.FileStatus;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.model.FileSlice;
@@ -38,37 +40,39 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-public class HudiReadOptimizedDirectoryLister
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static io.trino.plugin.hudi.HudiUtil.getFileStatus;
+
+public final class HudiRealTimeDirectoryLister
         implements HudiDirectoryLister
 {
-    private final HudiTableHandle tableHandle;
-    private final HiveMetastore hiveMetastore;
     private final Table hiveTable;
     private final SchemaTableName tableName;
+    private final HudiTableHandle tableHandle;
+    private final HiveMetastore hiveMetastore;
     private final List<HiveColumnHandle> partitionColumnHandles;
     private final HoodieTableFileSystemView fileSystemView;
     private final TupleDomain<String> partitionKeysFilter;
+    private List<String> hivePartitionNames;
     private final List<Column> partitionColumns;
 
-    private List<String> hivePartitionNames;
-
-    public HudiReadOptimizedDirectoryLister(
-            HoodieMetadataConfig metadataConfig,
-            HoodieEngineContext engineContext,
-            HudiTableHandle tableHandle,
-            HoodieTableMetaClient metaClient,
-            HiveMetastore hiveMetastore,
+    public HudiRealTimeDirectoryLister(
             Table hiveTable,
+            HudiTableHandle tableHandle,
+            HiveMetastore hiveMetastore,
+            HoodieEngineContext engineContext,
+            HoodieMetadataConfig metadataConfig,
+            HoodieTableMetaClient metaClient,
             List<HiveColumnHandle> partitionColumnHandles)
     {
-        this.tableHandle = tableHandle;
-        this.tableName = tableHandle.getSchemaTableName();
-        this.hiveMetastore = hiveMetastore;
         this.hiveTable = hiveTable;
+        this.tableHandle = tableHandle;
+        this.hiveMetastore = hiveMetastore;
+        this.tableName = tableHandle.getSchemaTableName();
+        this.partitionColumns = hiveTable.getPartitionColumns();
         this.partitionColumnHandles = partitionColumnHandles;
         this.fileSystemView = FileSystemViewManager.createInMemoryFileSystemView(engineContext, metaClient, metadataConfig);
         this.partitionKeysFilter = MetastoreUtil.computePartitionKeyFilter(partitionColumnHandles, tableHandle.getPartitionPredicates());
-        this.partitionColumns = hiveTable.getPartitionColumns();
     }
 
     @Override
@@ -98,18 +102,7 @@ public class HudiReadOptimizedDirectoryLister
     @Override
     public List<FileSlice> listFileSlice(HudiPartitionInfo partitionInfo)
     {
-        return fileSystemView.getLatestFileSlices(partitionInfo.getRelativePartitionPath())
-                .filter(fileSlice -> fileSlice.getBaseFile().isPresent())
-                .collect(Collectors.toList());
-    }
-
-    private List<String> getPartitionNamesFromHiveMetastore(TupleDomain<String> partitionKeysFilter)
-    {
-        return hiveMetastore.getPartitionNamesByFilter(
-                tableName.getSchemaName(),
-                tableName.getTableName(),
-                partitionColumns.stream().map(Column::getName).collect(Collectors.toList()),
-                partitionKeysFilter).orElseThrow(() -> new TableNotFoundException(tableHandle.getSchemaTableName()));
+        return fileSystemView.getLatestFileSlices(partitionInfo.getRelativePartitionPath()).collect(Collectors.toList());
     }
 
     @Override
@@ -124,5 +117,14 @@ public class HudiReadOptimizedDirectoryLister
         if (fileSystemView != null && !fileSystemView.isClosed()) {
             fileSystemView.close();
         }
+    }
+
+    private List<String> getPartitionNamesFromHiveMetastore(TupleDomain<String> partitionKeysFilter)
+    {
+        return hiveMetastore.getPartitionNamesByFilter(
+                tableName.getSchemaName(),
+                tableName.getTableName(),
+                partitionColumns.stream().map(Column::getName).collect(Collectors.toList()),
+                partitionKeysFilter).orElseThrow(() -> new TableNotFoundException(tableHandle.getSchemaTableName()));
     }
 }
