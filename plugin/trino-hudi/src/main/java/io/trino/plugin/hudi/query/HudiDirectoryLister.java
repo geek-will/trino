@@ -15,7 +15,6 @@ package io.trino.plugin.hudi.query;
 
 import io.trino.plugin.hive.metastore.Partition;
 import io.trino.plugin.hudi.partition.HudiPartitionInfo;
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.hudi.common.model.FileSlice;
 
 import java.io.Closeable;

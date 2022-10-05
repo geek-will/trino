@@ -25,7 +25,6 @@ import io.trino.plugin.hudi.partition.HudiPartitionInfoLoader;
 import io.trino.plugin.hudi.query.HudiDirectoryLister;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorSplit;
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.hudi.common.model.FileSlice;
 
 import java.util.Collection;
@@ -94,7 +93,7 @@ public class HudiBackgroundSplitLoader
         List<HivePartitionKey> partitionKeys = partition.getHivePartitionKeys();
         List<FileSlice> partitionFiles = hudiDirectoryLister.listFileSlice(partition);
         partitionFiles.stream()
-                .flatMap(fileSlice -> hudiSplitFactory.createSplits(partitionKeys, fileSlice))
+                .flatMap(fileSlice -> hudiSplitFactory.createSplits(fileSlice, partition, partitionKeys))
                 .map(asyncQueue::offer)
                 .forEachOrdered(MoreFutures::getFutureValue);
     }

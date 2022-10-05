@@ -18,11 +18,14 @@ import io.trino.plugin.hive.HivePartitionKey;
 import io.trino.plugin.hudi.HudiFile;
 import io.trino.plugin.hudi.HudiSplit;
 import io.trino.plugin.hudi.HudiTableHandle;
+import io.trino.plugin.hudi.partition.HudiPartitionInfo;
 import io.trino.spi.TrinoException;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hudi.common.model.FileSlice;
+import org.apache.hudi.common.model.HoodieBaseFile;
+import org.apache.hudi.common.util.Option;
 import org.apache.hudi.hadoop.PathWithBootstrapFileStatus;
 
 import java.io.IOException;
@@ -49,9 +52,17 @@ public class HudiSplitFactory
         this.hudiSplitWeightProvider = requireNonNull(hudiSplitWeightProvider, "hudiSplitWeightProvider is null");
     }
 
-    public Stream<HudiSplit> createSplits(List<HivePartitionKey> partitionKeys, FileSlice fileSlice)
+    public Stream<HudiSplit> createSplits(
+            FileSlice fileSlice,
+            HudiPartitionInfo partition,
+            List<HivePartitionKey> partitionKeys)
     {
-        FileStatus fileStatus = getFileStatus(fileSlice.getBaseFile().get());
+        Option<HoodieBaseFile> baseFile = fileSlice.getBaseFile();
+        if (!baseFile.isPresent()) {
+            return Stream.empty();
+        }
+
+        FileStatus fileStatus = getFileStatus(baseFile.get());
         List<FileSplit> splits;
         try {
             splits = createSplits(fileStatus);
@@ -63,6 +74,7 @@ public class HudiSplitFactory
         return splits.stream()
                 .map(fileSplit -> new HudiSplit(
                         fileStatus.getModificationTime(),
+                        partition,
                         Optional.of(new HudiFile(
                                 fileSplit.getPath().toString(),
                                 fileSplit.getStart(),
@@ -72,7 +84,8 @@ public class HudiSplitFactory
                         ImmutableList.of(),
                         hudiTableHandle.getRegularPredicates(),
                         partitionKeys,
-                        hudiSplitWeightProvider.calculateSplitWeight(fileSplit.getLength())));
+                        hudiSplitWeightProvider.calculateSplitWeight(fileSplit.getLength()),
+                        ""));
     }
 
     private List<FileSplit> createSplits(FileStatus fileStatus)

@@ -14,6 +14,7 @@
 
 package io.trino.plugin.hudi.query;
 
+import com.google.common.collect.ImmutableList;
 import io.trino.plugin.hive.HiveColumnHandle;
 import io.trino.plugin.hive.metastore.Column;
 import io.trino.plugin.hive.metastore.HiveMetastore;
@@ -26,11 +27,12 @@ import io.trino.plugin.hudi.partition.HudiPartitionInfo;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.TableNotFoundException;
 import io.trino.spi.predicate.TupleDomain;
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.view.FileSystemViewManager;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 
@@ -40,9 +42,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-import static com.google.common.collect.ImmutableList.toImmutableList;
-import static io.trino.plugin.hudi.HudiUtil.getFileStatus;
-
 public final class HudiRealTimeDirectoryLister
         implements HudiDirectoryLister
 {
@@ -51,6 +50,7 @@ public final class HudiRealTimeDirectoryLister
     private final HudiTableHandle tableHandle;
     private final HiveMetastore hiveMetastore;
     private final List<HiveColumnHandle> partitionColumnHandles;
+    private final HoodieTableMetaClient tableMetaClient;
     private final HoodieTableFileSystemView fileSystemView;
     private final TupleDomain<String> partitionKeysFilter;
     private List<String> hivePartitionNames;
@@ -62,7 +62,7 @@ public final class HudiRealTimeDirectoryLister
             HiveMetastore hiveMetastore,
             HoodieEngineContext engineContext,
             HoodieMetadataConfig metadataConfig,
-            HoodieTableMetaClient metaClient,
+            HoodieTableMetaClient tableMetaClient,
             List<HiveColumnHandle> partitionColumnHandles)
     {
         this.hiveTable = hiveTable;
@@ -71,7 +71,8 @@ public final class HudiRealTimeDirectoryLister
         this.tableName = tableHandle.getSchemaTableName();
         this.partitionColumns = hiveTable.getPartitionColumns();
         this.partitionColumnHandles = partitionColumnHandles;
-        this.fileSystemView = FileSystemViewManager.createInMemoryFileSystemView(engineContext, metaClient, metadataConfig);
+        this.tableMetaClient = tableMetaClient;
+        this.fileSystemView = FileSystemViewManager.createInMemoryFileSystemView(engineContext, tableMetaClient, metadataConfig);
         this.partitionKeysFilter = MetastoreUtil.computePartitionKeyFilter(partitionColumnHandles, tableHandle.getPartitionPredicates());
     }
 
@@ -102,7 +103,14 @@ public final class HudiRealTimeDirectoryLister
     @Override
     public List<FileSlice> listFileSlice(HudiPartitionInfo partitionInfo)
     {
-        return fileSystemView.getLatestFileSlices(partitionInfo.getRelativePartitionPath()).collect(Collectors.toList());
+        HoodieTimeline timeline = tableMetaClient.getActiveTimeline().getCommitsTimeline().filterCompletedInstants();
+        String timestamp = timeline.lastInstant().map(HoodieInstant::getTimestamp).orElse(null);
+        if (timestamp == null) {
+            // no completed instant for current table
+            return ImmutableList.of();
+        }
+        return fileSystemView.getLatestFileSlicesBeforeOrOn(partitionInfo.getRelativePartitionPath(), timestamp, false)
+                .collect(Collectors.toList());
     }
 
     @Override

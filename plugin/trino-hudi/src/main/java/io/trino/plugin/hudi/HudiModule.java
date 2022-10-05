@@ -18,6 +18,7 @@ import com.google.inject.Key;
 import com.google.inject.Module;
 import com.google.inject.Provides;
 import com.google.inject.Scopes;
+import io.trino.hdfs.HdfsEnvironment;
 import io.trino.plugin.base.session.SessionPropertiesProvider;
 import io.trino.plugin.hive.FileFormatDataSourceStats;
 import io.trino.plugin.hive.HiveNodePartitioningProvider;
@@ -65,6 +66,7 @@ public class HudiModule
         configBinder(binder).bindConfig(ParquetReaderConfig.class);
         configBinder(binder).bindConfig(ParquetWriterConfig.class);
 
+        binder.bind(HdfsEnvironment.class).in(Scopes.SINGLETON);
         binder.bind(HudiMetadataFactory.class).in(Scopes.SINGLETON);
 
         binder.bind(FileFormatDataSourceStats.class).in(Scopes.SINGLETON);

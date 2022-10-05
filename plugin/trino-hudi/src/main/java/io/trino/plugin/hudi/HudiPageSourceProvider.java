@@ -17,6 +17,7 @@ import com.google.common.collect.ImmutableList;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.filesystem.TrinoInputFile;
+import io.trino.hdfs.HdfsEnvironment;
 import io.trino.parquet.ParquetCorruptionException;
 import io.trino.parquet.ParquetDataSource;
 import io.trino.parquet.ParquetDataSourceId;
@@ -40,8 +41,11 @@ import io.trino.spi.connector.ConnectorSplit;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.DynamicFilter;
+import io.trino.spi.connector.RecordCursor;
+import io.trino.spi.connector.RecordPageSource;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.type.Decimals;
+import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeSignature;
 import org.apache.hadoop.fs.Path;
 import org.apache.hudi.common.model.HoodieFileFormat;
@@ -66,10 +70,12 @@ import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
 import static io.trino.parquet.ParquetTypeUtils.getColumnIO;
@@ -77,6 +83,7 @@ import static io.trino.parquet.ParquetTypeUtils.getDescriptors;
 import static io.trino.parquet.predicate.PredicateUtils.buildPredicate;
 import static io.trino.parquet.predicate.PredicateUtils.predicateMatches;
 import static io.trino.plugin.hive.HivePageSourceProvider.projectBaseColumns;
+import static io.trino.plugin.hive.metastore.MetastoreUtil.getHiveSchema;
 import static io.trino.plugin.hive.parquet.ParquetPageSourceFactory.ParquetReaderProvider;
 import static io.trino.plugin.hive.parquet.ParquetPageSourceFactory.createParquetPageSource;
 import static io.trino.plugin.hive.parquet.ParquetPageSourceFactory.getColumnIndexStore;
@@ -93,7 +100,6 @@ import static io.trino.plugin.hudi.HudiSessionProperties.isParquetOptimizedNeste
 import static io.trino.plugin.hudi.HudiSessionProperties.isParquetOptimizedReaderEnabled;
 import static io.trino.plugin.hudi.HudiSessionProperties.shouldUseParquetColumnNames;
 import static io.trino.plugin.hudi.HudiUtil.getHudiFileFormat;
-import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.predicate.Utils.nativeValueToBlock;
 import static io.trino.spi.type.StandardTypes.BIGINT;
 import static io.trino.spi.type.StandardTypes.BOOLEAN;
@@ -121,6 +127,7 @@ import static java.util.stream.Collectors.toUnmodifiableList;
 public class HudiPageSourceProvider
         implements ConnectorPageSourceProvider
 {
+    private final HdfsEnvironment hdfsEnvironment;
     private final TrinoFileSystemFactory fileSystemFactory;
     private final FileFormatDataSourceStats dataSourceStats;
     private final ParquetReaderOptions options;
@@ -129,10 +136,12 @@ public class HudiPageSourceProvider
 
     @Inject
     public HudiPageSourceProvider(
+            HdfsEnvironment hdfsEnvironment,
             TrinoFileSystemFactory fileSystemFactory,
             FileFormatDataSourceStats dataSourceStats,
             ParquetReaderConfig parquetReaderConfig)
     {
+        this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
         this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
         this.dataSourceStats = requireNonNull(dataSourceStats, "dataSourceStats is null");
         this.options = requireNonNull(parquetReaderConfig, "parquetReaderConfig is null").toParquetReaderOptions();
@@ -150,19 +159,19 @@ public class HudiPageSourceProvider
     {
         HudiTableHandle tableHandle = (HudiTableHandle) connectorTable;
         HoodieTableType tableType = tableHandle.getTableType();
-        HudiSplit split = (HudiSplit) connectorSplit;
-        List<HiveColumnHandle> hiveColumns = columns.stream()
+        HudiSplit hudiSplit = (HudiSplit) connectorSplit;
+        List<HiveColumnHandle> dataColumns = columns.stream()
                 .map(HiveColumnHandle.class::cast)
                 .collect(toList());
         // just send regular columns to create parquet page source
         // for partition columns, separate blocks will be created
-        List<HiveColumnHandle> regularColumns = hiveColumns.stream()
+        List<HiveColumnHandle> regularColumns = dataColumns.stream()
                 .filter(columnHandle -> !columnHandle.isPartitionKey() && !columnHandle.isHidden())
                 .collect(Collectors.toList());
 
         final ConnectorPageSource dataPageSource;
         if (tableType == HoodieTableType.COPY_ON_WRITE) {
-            HudiFile baseFile = split.getBaseFile().orElseThrow(() ->
+            HudiFile baseFile = hudiSplit.getBaseFile().orElseThrow(() ->
                     new TrinoException(HUDI_CANNOT_OPEN_SPLIT, "Split without base file is invalid"));
             Path path = new Path(baseFile.getPath());
             HoodieFileFormat hudiFileFormat = getHudiFileFormat(path.toString());
@@ -172,10 +181,20 @@ public class HudiPageSourceProvider
 
             TrinoFileSystem fileSystem = fileSystemFactory.create(session);
             TrinoInputFile inputFile = fileSystem.newInputFile(path.toString(), baseFile.getFileSize());
-            dataPageSource = createPageSource(session, regularColumns, split, inputFile, dataSourceStats, options, timeZone);
+            dataPageSource = createPageSource(session, regularColumns, hudiSplit, inputFile, dataSourceStats, options, timeZone);
         }
         else if (tableType == HoodieTableType.MERGE_ON_READ) {
-            throw new TrinoException(NOT_SUPPORTED, "Could not create page source for table type " + tableType);
+            Properties schema = getHiveSchema(hudiSplit.getPartition().getTable());
+            RecordCursor recordCursor = HudiRecordCursors.createRealtimeRecordCursor(
+                    hdfsEnvironment,
+                    session,
+                    schema,
+                    hudiSplit,
+                    dataColumns);
+            List<Type> types = dataColumns.stream()
+                    .map(column -> column.getType())
+                    .collect(toImmutableList());
+            dataPageSource = new RecordPageSource(types, recordCursor);
         }
         else {
             throw new TrinoException(HUDI_UNKNOWN_TABLE_TYPE, "Could not create page source for table type " + tableType);

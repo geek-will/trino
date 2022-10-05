@@ -19,6 +19,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.trino.plugin.hive.HiveColumnHandle;
 import io.trino.plugin.hive.HivePartitionKey;
+import io.trino.plugin.hudi.partition.HudiPartitionInfo;
 import io.trino.spi.HostAddress;
 import io.trino.spi.SplitWeight;
 import io.trino.spi.connector.ConnectorSplit;
@@ -34,8 +35,10 @@ public class HudiSplit
         implements ConnectorSplit
 {
     private final long fileModifiedTime;
+    private final HudiPartitionInfo partition;
     private final Optional<HudiFile> baseFile;
     private final List<HudiFile> logFiles;
+    private final String instantTime;
     private final List<HostAddress> addresses;
     private final TupleDomain<HiveColumnHandle> predicate;
     private final List<HivePartitionKey> partitionKeys;
@@ -44,20 +47,24 @@ public class HudiSplit
     @JsonCreator
     public HudiSplit(
             @JsonProperty("fileModifiedTime") long fileModifiedTime,
+            @JsonProperty("partition") HudiPartitionInfo partition,
             @JsonProperty("baseFile") Optional<HudiFile> baseFile,
             @JsonProperty("logFiles") List<HudiFile> logFiles,
             @JsonProperty("addresses") List<HostAddress> addresses,
             @JsonProperty("predicate") TupleDomain<HiveColumnHandle> predicate,
             @JsonProperty("partitionKeys") List<HivePartitionKey> partitionKeys,
-            @JsonProperty("splitWeight") SplitWeight splitWeight)
+            @JsonProperty("splitWeight") SplitWeight splitWeight,
+            @JsonProperty("instantTime") String instantTime)
     {
         this.fileModifiedTime = fileModifiedTime;
+        this.partition = requireNonNull(partition, "partition is null");
         this.baseFile = requireNonNull(baseFile, "baseFile is null");
         this.logFiles = requireNonNull(logFiles, "logFiles is null");
         this.addresses = ImmutableList.copyOf(requireNonNull(addresses, "addresses is null"));
         this.predicate = requireNonNull(predicate, "predicate is null");
         this.partitionKeys = ImmutableList.copyOf(requireNonNull(partitionKeys, "partitionKeys is null"));
         this.splitWeight = requireNonNull(splitWeight, "splitWeight is null");
+        this.instantTime = requireNonNull(instantTime, "instantTime is null");
     }
 
     @Override
@@ -91,6 +98,12 @@ public class HudiSplit
     }
 
     @JsonProperty
+    public HudiPartitionInfo getPartition()
+    {
+        return partition;
+    }
+
+    @JsonProperty
     public Optional<HudiFile> getBaseFile()
     {
         return baseFile;
@@ -118,6 +131,12 @@ public class HudiSplit
     public List<HivePartitionKey> getPartitionKeys()
     {
         return partitionKeys;
+    }
+
+    @JsonProperty
+    public String getInstantTime()
+    {
+        return instantTime;
     }
 
     @Override
