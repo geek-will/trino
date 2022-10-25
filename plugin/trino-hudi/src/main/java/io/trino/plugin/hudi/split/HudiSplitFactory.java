@@ -25,14 +25,17 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieBaseFile;
+import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.hadoop.PathWithBootstrapFileStatus;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.plugin.hudi.HudiErrorCode.HUDI_CANNOT_OPEN_SPLIT;
 import static io.trino.plugin.hudi.HudiUtil.getFileStatus;
 import static java.util.Objects.requireNonNull;
@@ -58,11 +61,15 @@ public class HudiSplitFactory
             List<HivePartitionKey> partitionKeys)
     {
         Option<HoodieBaseFile> baseFile = fileSlice.getBaseFile();
-        if (!baseFile.isPresent()) {
+        if (!baseFile.isPresent() && hudiTableHandle.getTableType() == HoodieTableType.COPY_ON_WRITE) {
             return Stream.empty();
         }
 
         FileStatus fileStatus = getFileStatus(baseFile.get());
+        List<HudiFile> logFiles = fileSlice.getLogFiles()
+                .map(logFileStatus -> HudiFile.of(logFileStatus.getFileStatus()))
+                .collect(toImmutableList());
+
         List<FileSplit> splits;
         try {
             splits = createSplits(fileStatus);
@@ -71,21 +78,28 @@ public class HudiSplitFactory
             throw new TrinoException(HUDI_CANNOT_OPEN_SPLIT, e);
         }
 
-        return splits.stream()
-                .map(fileSplit -> new HudiSplit(
-                        fileStatus.getModificationTime(),
-                        partition,
-                        Optional.of(new HudiFile(
-                                fileSplit.getPath().toString(),
-                                fileSplit.getStart(),
-                                fileSplit.getLength(),
-                                fileStatus.getLen())),
-                        ImmutableList.of(),  // TODO: add logFiles of Hudi MOR table
-                        ImmutableList.of(),
-                        hudiTableHandle.getRegularPredicates(),
-                        partitionKeys,
-                        hudiSplitWeightProvider.calculateSplitWeight(fileSplit.getLength()),
-                        ""));
+        // Distribute log files equally to baseFileSplits
+        List<HudiSplit> hudiSplits = new ArrayList<>();
+        int step = splits.isEmpty() ? logFiles.size() : (int) Math.ceil((double) logFiles.size() / (double) splits.size());
+        for (int i = 0; i < splits.size(); i++) {
+            int start = i * step;
+            int end = (i + 1) * step > logFiles.size() ? logFiles.size() : (i + 1) * step;
+            FileSplit baseFileSplit = splits.get(i);
+            hudiSplits.add(new HudiSplit(
+                    fileStatus.getModificationTime(),
+                    partition,
+                    Optional.of(new HudiFile(
+                            baseFileSplit.getPath().toString(),
+                            baseFileSplit.getStart(),
+                            baseFileSplit.getLength())),
+                    logFiles.subList(start, end),
+                    ImmutableList.of(),
+                    hudiTableHandle.getRegularPredicates(),
+                    partitionKeys,
+                    hudiSplitWeightProvider.calculateSplitWeight(baseFileSplit.getLength()),
+                    fileSlice.getBaseInstantTime()));
+        }
+        return hudiSplits.stream();
     }
 
     private List<FileSplit> createSplits(FileStatus fileStatus)

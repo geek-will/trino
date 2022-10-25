@@ -67,6 +67,12 @@ public class HiveHudiPartitionInfo
     }
 
     @Override
+    public Table getTable()
+    {
+        return table;
+    }
+
+    @Override
     public String getRelativePartitionPath()
     {
         if (relativePartitionPath == null) {

@@ -99,7 +99,6 @@ public class HudiReadOptimizedDirectoryLister
     public List<FileSlice> listFileSlice(HudiPartitionInfo partitionInfo)
     {
         return fileSystemView.getLatestFileSlices(partitionInfo.getRelativePartitionPath())
-                .filter(fileSlice -> fileSlice.getBaseFile().isPresent())
                 .collect(Collectors.toList());
     }
 

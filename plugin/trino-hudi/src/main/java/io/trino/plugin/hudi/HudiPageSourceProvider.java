@@ -180,7 +180,7 @@ public class HudiPageSourceProvider
             }
 
             TrinoFileSystem fileSystem = fileSystemFactory.create(session);
-            TrinoInputFile inputFile = fileSystem.newInputFile(path.toString(), baseFile.getFileSize());
+            TrinoInputFile inputFile = fileSystem.newInputFile(path.toString(), baseFile.getLength());
             dataPageSource = createPageSource(session, regularColumns, hudiSplit, inputFile, dataSourceStats, options, timeZone);
         }
         else if (tableType == HoodieTableType.MERGE_ON_READ) {

@@ -16,6 +16,7 @@ package io.trino.plugin.hudi;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.apache.hadoop.fs.FileStatus;
 
 import java.util.Objects;
 
@@ -27,24 +28,20 @@ public class HudiFile
     private final String path;
     private final long start;
     private final long length;
-    private final long fileSize;
 
     @JsonCreator
     public HudiFile(
             @JsonProperty("path") String path,
             @JsonProperty("start") long start,
-            @JsonProperty("length") long length,
-            @JsonProperty("fileSize") long fileSize)
+            @JsonProperty("length") long length)
     {
         checkArgument(!isNullOrEmpty(path), "path is null or empty");
         checkArgument(start >= 0, "start is negative");
         checkArgument(length >= 0, "length is negative");
-        checkArgument(start + length <= fileSize, "fileSize must be at least start + length");
 
         this.path = path;
         this.start = start;
         this.length = length;
-        this.fileSize = fileSize;
     }
 
     @JsonProperty
@@ -63,12 +60,6 @@ public class HudiFile
     public long getLength()
     {
         return length;
-    }
-
-    @JsonProperty
-    public long getFileSize()
-    {
-        return fileSize;
     }
 
     @Override
@@ -94,5 +85,10 @@ public class HudiFile
     public String toString()
     {
         return path + ":" + start + "+" + length;
+    }
+
+    public static HudiFile of(FileStatus fileStatus)
+    {
+        return new HudiFile(fileStatus.getPath().toString(), 0, fileStatus.getLen());
     }
 }
