@@ -41,7 +41,6 @@ import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.type.TypeManager;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.hudi.common.model.HoodieTableType;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -109,11 +108,15 @@ public class HudiMetadata
         if (!isHudiTable(session, table.get())) {
             throw new TrinoException(HUDI_UNKNOWN_TABLE_TYPE, format("Not a Hudi table: %s", tableName));
         }
+
+        String inputFormat = table.get().getStorage().getStorageFormat().getInputFormat();
+        HudiTableType hudiTableType = HudiTableType.fromInputFormat(inputFormat);
+
         return new HudiTableHandle(
                 tableName.getSchemaName(),
                 tableName.getTableName(),
                 table.get().getStorage().getLocation(),
-                HoodieTableType.COPY_ON_WRITE,
+                hudiTableType,
                 TupleDomain.all(),
                 TupleDomain.all());
     }

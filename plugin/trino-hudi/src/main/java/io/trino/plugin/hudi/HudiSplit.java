@@ -19,7 +19,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.trino.plugin.hive.HiveColumnHandle;
 import io.trino.plugin.hive.HivePartitionKey;
-import io.trino.plugin.hudi.partition.HudiPartitionInfo;
+import io.trino.plugin.hive.metastore.Table;
 import io.trino.spi.HostAddress;
 import io.trino.spi.SplitWeight;
 import io.trino.spi.connector.ConnectorSplit;
@@ -34,8 +34,8 @@ import static java.util.Objects.requireNonNull;
 public class HudiSplit
         implements ConnectorSplit
 {
+    private final Table table;
     private final long fileModifiedTime;
-    private final HudiPartitionInfo partition;
     private final Optional<HudiFile> baseFile;
     private final List<HudiFile> logFiles;
     private final String instantTime;
@@ -46,8 +46,8 @@ public class HudiSplit
 
     @JsonCreator
     public HudiSplit(
+            @JsonProperty("table") Table table,
             @JsonProperty("fileModifiedTime") long fileModifiedTime,
-            @JsonProperty("partition") HudiPartitionInfo partition,
             @JsonProperty("baseFile") Optional<HudiFile> baseFile,
             @JsonProperty("logFiles") List<HudiFile> logFiles,
             @JsonProperty("addresses") List<HostAddress> addresses,
@@ -56,8 +56,8 @@ public class HudiSplit
             @JsonProperty("splitWeight") SplitWeight splitWeight,
             @JsonProperty("instantTime") String instantTime)
     {
+        this.table = requireNonNull(table, "table is null");
         this.fileModifiedTime = fileModifiedTime;
-        this.partition = requireNonNull(partition, "partition is null");
         this.baseFile = requireNonNull(baseFile, "baseFile is null");
         this.logFiles = requireNonNull(logFiles, "logFiles is null");
         this.addresses = ImmutableList.copyOf(requireNonNull(addresses, "addresses is null"));
@@ -98,9 +98,9 @@ public class HudiSplit
     }
 
     @JsonProperty
-    public HudiPartitionInfo getPartition()
+    public Table getTable()
     {
-        return partition;
+        return table;
     }
 
     @JsonProperty

@@ -49,7 +49,6 @@ import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeSignature;
 import org.apache.hadoop.fs.Path;
 import org.apache.hudi.common.model.HoodieFileFormat;
-import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
 import org.apache.parquet.hadoop.metadata.FileMetaData;
@@ -158,22 +157,23 @@ public class HudiPageSourceProvider
             DynamicFilter dynamicFilter)
     {
         HudiTableHandle tableHandle = (HudiTableHandle) connectorTable;
-        HoodieTableType tableType = tableHandle.getTableType();
+        HudiTableType tableType = tableHandle.getTableType();
         HudiSplit hudiSplit = (HudiSplit) connectorSplit;
-        List<HiveColumnHandle> dataColumns = columns.stream()
+        final HudiFile baseFile = hudiSplit.getBaseFile().orElseThrow(() ->
+                new TrinoException(HUDI_CANNOT_OPEN_SPLIT, "Split without base file is invalid"));
+        final Path path = new Path(baseFile.getPath());
+
+        List<HiveColumnHandle> hiveColumns = columns.stream()
                 .map(HiveColumnHandle.class::cast)
                 .collect(toList());
         // just send regular columns to create parquet page source
         // for partition columns, separate blocks will be created
-        List<HiveColumnHandle> regularColumns = dataColumns.stream()
+        List<HiveColumnHandle> regularColumns = hiveColumns.stream()
                 .filter(columnHandle -> !columnHandle.isPartitionKey() && !columnHandle.isHidden())
                 .collect(Collectors.toList());
 
         final ConnectorPageSource dataPageSource;
-        if (tableType == HoodieTableType.COPY_ON_WRITE) {
-            HudiFile baseFile = hudiSplit.getBaseFile().orElseThrow(() ->
-                    new TrinoException(HUDI_CANNOT_OPEN_SPLIT, "Split without base file is invalid"));
-            Path path = new Path(baseFile.getPath());
+        if (tableType == HudiTableType.COW) {
             HoodieFileFormat hudiFileFormat = getHudiFileFormat(path.toString());
             if (!HoodieFileFormat.PARQUET.equals(hudiFileFormat)) {
                 throw new TrinoException(HUDI_UNSUPPORTED_FILE_FORMAT, format("File format %s not supported", hudiFileFormat));
@@ -183,15 +183,15 @@ public class HudiPageSourceProvider
             TrinoInputFile inputFile = fileSystem.newInputFile(path.toString(), baseFile.getLength());
             dataPageSource = createPageSource(session, regularColumns, hudiSplit, inputFile, dataSourceStats, options, timeZone);
         }
-        else if (tableType == HoodieTableType.MERGE_ON_READ) {
-            Properties schema = getHiveSchema(hudiSplit.getPartition().getTable());
+        else if (tableType == HudiTableType.MOR) {
+            Properties schema = getHiveSchema(hudiSplit.getTable());
             RecordCursor recordCursor = HudiRecordCursors.createRealtimeRecordCursor(
                     hdfsEnvironment,
                     session,
                     schema,
                     hudiSplit,
-                    dataColumns);
-            List<Type> types = dataColumns.stream()
+                    regularColumns);
+            List<Type> types = regularColumns.stream()
                     .map(column -> column.getType())
                     .collect(toImmutableList());
             dataPageSource = new RecordPageSource(types, recordCursor);
@@ -201,13 +201,13 @@ public class HudiPageSourceProvider
         }
 
         return new HudiPageSource(
-                toPartitionName(split.getPartitionKeys()),
+                toPartitionName(hudiSplit.getPartitionKeys()),
                 hiveColumns,
-                convertPartitionValues(hiveColumns, split.getPartitionKeys()), // create blocks for partition values
+                convertPartitionValues(hiveColumns, hudiSplit.getPartitionKeys()), // create blocks for partition values
                 dataPageSource,
                 path,
-                split.getFileSize(),
-                split.getFileModifiedTime());
+                baseFile.getLength(),
+                hudiSplit.getFileModifiedTime());
     }
 
     private static ConnectorPageSource createPageSource(

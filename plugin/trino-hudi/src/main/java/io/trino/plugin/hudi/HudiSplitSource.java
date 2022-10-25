@@ -34,7 +34,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.engine.HoodieLocalEngineContext;
-import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 
 import java.util.List;
@@ -80,30 +79,31 @@ public class HudiSplitSource
         List<HiveColumnHandle> partitionColumnHandles = table.getPartitionColumns().stream()
                 .map(column -> partitionColumnHandleMap.get(column.getName())).collect(toList());
 
-        HoodieTableType tableType = tableHandle.getTableType();
+        HudiTableType tableType = tableHandle.getTableType();
         final HudiDirectoryLister hudiDirectoryLister;
-        if (tableType == HoodieTableType.COPY_ON_WRITE) {
-            hudiDirectoryLister = new HudiReadOptimizedDirectoryLister(
-                    metadataConfig,
-                    engineContext,
-                    tableHandle,
-                    metaClient,
-                    metastore,
-                    table,
-                    partitionColumnHandles);
-        }
-        else if (tableType == HoodieTableType.MERGE_ON_READ) {
-            hudiDirectoryLister = new HudiRealTimeDirectoryLister(
-                    table,
-                    tableHandle,
-                    metastore,
-                    engineContext,
-                    metadataConfig,
-                    metaClient,
-                    partitionColumnHandles);
-        }
-        else {
-            throw new TrinoException(HUDI_UNKNOWN_TABLE_TYPE, "Could not create directory lister for table type " + tableType);
+        switch (tableType) {
+            case COW:
+                hudiDirectoryLister = new HudiReadOptimizedDirectoryLister(
+                        metadataConfig,
+                        engineContext,
+                        tableHandle,
+                        metaClient,
+                        metastore,
+                        table,
+                        partitionColumnHandles);
+                break;
+            case MOR:
+                hudiDirectoryLister = new HudiRealTimeDirectoryLister(
+                        table,
+                        tableHandle,
+                        metastore,
+                        engineContext,
+                        metadataConfig,
+                        metaClient,
+                        partitionColumnHandles);
+                break;
+            default:
+                throw new TrinoException(HUDI_UNKNOWN_TABLE_TYPE, "Could not create directory lister for table type " + tableType);
         }
 
         this.queue = new ThrottledAsyncQueue<>(maxSplitsPerSecond, maxOutstandingSplits, executor);

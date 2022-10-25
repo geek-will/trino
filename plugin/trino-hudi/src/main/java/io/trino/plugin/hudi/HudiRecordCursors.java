@@ -94,7 +94,7 @@ class HudiRecordCursors
         refineCompressionCodecs(jobConf);
 
         // create input format
-        String inputFormatName = split.getPartition().getTable().getStorage().getStorageFormat().getInputFormat();
+        String inputFormatName = split.getTable().getStorage().getStorageFormat().getInputFormat();
         InputFormat<?, ?> inputFormat = createInputFormat(jobConf, inputFormatName);
 
         // create record reader for split
@@ -103,7 +103,7 @@ class HudiRecordCursors
             Path path = new Path(baseFile.getPath());
             FileSplit fileSplit = new FileSplit(path, baseFile.getStart(), baseFile.getLength(), (String[]) null);
             List<HoodieLogFile> logFiles = split.getLogFiles().stream().map(file -> new HoodieLogFile(file.getPath())).collect(toList());
-            String tablePath = split.getPartition().getTable().getStorage().getLocation();
+            String tablePath = split.getTable().getStorage().getLocation();
             FileSplit hudiSplit = new HoodieRealtimeFileSplit(fileSplit, tablePath, logFiles, split.getInstantTime(), false, Option.empty());
             return inputFormat.getRecordReader(hudiSplit, jobConf, Reporter.NULL);
         }
