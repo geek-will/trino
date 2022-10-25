@@ -29,6 +29,8 @@ import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.view.FileSystemViewManager;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 
@@ -46,6 +48,7 @@ public class HudiReadOptimizedDirectoryLister
     private final Table hiveTable;
     private final SchemaTableName tableName;
     private final List<HiveColumnHandle> partitionColumnHandles;
+    private final HoodieTableMetaClient tableMetaClient;
     private final HoodieTableFileSystemView fileSystemView;
     private final TupleDomain<String> partitionKeysFilter;
     private final List<Column> partitionColumns;
@@ -66,6 +69,7 @@ public class HudiReadOptimizedDirectoryLister
         this.hiveMetastore = hiveMetastore;
         this.hiveTable = hiveTable;
         this.partitionColumnHandles = partitionColumnHandles;
+        this.tableMetaClient = metaClient;
         this.fileSystemView = FileSystemViewManager.createInMemoryFileSystemView(engineContext, metaClient, metadataConfig);
         this.partitionKeysFilter = MetastoreUtil.computePartitionKeyFilter(partitionColumnHandles, tableHandle.getPartitionPredicates());
         this.partitionColumns = hiveTable.getPartitionColumns();
@@ -96,7 +100,14 @@ public class HudiReadOptimizedDirectoryLister
     }
 
     @Override
-    public List<FileSlice> listFileSlice(HudiPartitionInfo partitionInfo)
+    public String getMaxCommitTime()
+    {
+        HoodieTimeline timeline = tableMetaClient.getActiveTimeline().getCommitsTimeline().filterCompletedInstants();
+        return timeline.lastInstant().map(HoodieInstant::getTimestamp).orElse(null);
+    }
+
+    @Override
+    public List<FileSlice> listFileSlice(HudiPartitionInfo partitionInfo, String timeLine)
     {
         return fileSystemView.getLatestFileSlices(partitionInfo.getRelativePartitionPath())
                 .collect(Collectors.toList());

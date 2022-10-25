@@ -27,7 +27,9 @@ public interface HudiDirectoryLister
 {
     List<HudiPartitionInfo> getPartitionsToScan();
 
-    List<FileSlice> listFileSlice(HudiPartitionInfo partitionInfo);
+    String getMaxCommitTime();
+
+    List<FileSlice> listFileSlice(HudiPartitionInfo partitionInfo, String maxCommitTime);
 
     Map<String, Optional<Partition>> getPartitions(List<String> partitionNames);
 }

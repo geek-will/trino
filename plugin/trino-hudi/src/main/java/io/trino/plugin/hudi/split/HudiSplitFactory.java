@@ -56,6 +56,7 @@ public class HudiSplitFactory
     }
 
     public Stream<HudiSplit> createSplits(
+            String timeLine,
             FileSlice fileSlice,
             HudiPartitionInfo partition,
             List<HivePartitionKey> partitionKeys)
@@ -97,7 +98,7 @@ public class HudiSplitFactory
                     hudiTableHandle.getRegularPredicates(),
                     partitionKeys,
                     hudiSplitWeightProvider.calculateSplitWeight(baseFileSplit.getLength()),
-                    fileSlice.getBaseInstantTime()));
+                    timeLine));
         }
         return hudiSplits.stream();
     }

@@ -101,15 +101,20 @@ public final class HudiRealTimeDirectoryLister
     }
 
     @Override
-    public List<FileSlice> listFileSlice(HudiPartitionInfo partitionInfo)
+    public String getMaxCommitTime()
     {
         HoodieTimeline timeline = tableMetaClient.getActiveTimeline().getCommitsTimeline().filterCompletedInstants();
-        String timestamp = timeline.lastInstant().map(HoodieInstant::getTimestamp).orElse(null);
-        if (timestamp == null) {
+        return timeline.lastInstant().map(HoodieInstant::getTimestamp).orElse(null);
+    }
+
+    @Override
+    public List<FileSlice> listFileSlice(HudiPartitionInfo partitionInfo, String timeLine)
+    {
+        if (timeLine == null) {
             // no completed instant for current table
             return ImmutableList.of();
         }
-        return fileSystemView.getLatestFileSlicesBeforeOrOn(partitionInfo.getRelativePartitionPath(), timestamp, false)
+        return fileSystemView.getLatestFileSlicesBeforeOrOn(partitionInfo.getRelativePartitionPath(), timeLine, false)
                 .collect(Collectors.toList());
     }
 

@@ -91,9 +91,10 @@ public class HudiBackgroundSplitLoader
     private void loadSplits(HudiPartitionInfo partition)
     {
         List<HivePartitionKey> partitionKeys = partition.getHivePartitionKeys();
-        List<FileSlice> partitionFiles = hudiDirectoryLister.listFileSlice(partition);
+        String maxCommitTime = hudiDirectoryLister.getMaxCommitTime();
+        List<FileSlice> partitionFiles = hudiDirectoryLister.listFileSlice(partition, maxCommitTime);
         partitionFiles.stream()
-                .flatMap(fileSlice -> hudiSplitFactory.createSplits(fileSlice, partition, partitionKeys))
+                .flatMap(fileSlice -> hudiSplitFactory.createSplits(maxCommitTime, fileSlice, partition, partitionKeys))
                 .map(asyncQueue::offer)
                 .forEachOrdered(MoreFutures::getFutureValue);
     }
