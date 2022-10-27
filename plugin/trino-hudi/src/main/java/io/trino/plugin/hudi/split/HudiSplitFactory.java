@@ -68,7 +68,7 @@ public class HudiSplitFactory
 
         FileStatus fileStatus = getFileStatus(baseFile.get());
         List<HudiFile> logFiles = fileSlice.getLogFiles()
-                .map(logFileStatus -> HudiFile.of(logFileStatus.getFileStatus()))
+                .map(logFileStatus -> HudiFile.fromFileStatus(logFileStatus.getFileStatus()))
                 .collect(toImmutableList());
 
         List<FileSplit> splits;
@@ -89,10 +89,7 @@ public class HudiSplitFactory
             hudiSplits.add(new HudiSplit(
                     partition.getTable(),
                     fileStatus.getModificationTime(),
-                    Optional.of(new HudiFile(
-                            baseFileSplit.getPath().toString(),
-                            baseFileSplit.getStart(),
-                            baseFileSplit.getLength())),
+                    Optional.of(HudiFile.fromFileSplit(baseFileSplit)),
                     logFiles.subList(start, end),
                     ImmutableList.of(),
                     hudiTableHandle.getRegularPredicates(),

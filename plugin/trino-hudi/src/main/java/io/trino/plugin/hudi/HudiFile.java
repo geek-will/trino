@@ -17,6 +17,7 @@ package io.trino.plugin.hudi;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.mapred.FileSplit;
 
 import java.util.Objects;
 
@@ -87,8 +88,13 @@ public class HudiFile
         return path + ":" + start + "+" + length;
     }
 
-    public static HudiFile of(FileStatus fileStatus)
+    public static HudiFile fromFileStatus(FileStatus fileStatus)
     {
         return new HudiFile(fileStatus.getPath().toString(), 0, fileStatus.getLen());
+    }
+
+    public static HudiFile fromFileSplit(FileSplit fileSplit)
+    {
+        return new HudiFile(fileSplit.getPath().toString(), fileSplit.getStart(), fileSplit.getLength());
     }
 }

@@ -29,7 +29,7 @@ public interface HudiDirectoryLister
 
     String getMaxCommitTime();
 
-    List<FileSlice> listFileSlice(HudiPartitionInfo partitionInfo, String maxCommitTime);
+    List<FileSlice> listFileSlice(HudiPartitionInfo partitionInfo, String timeLine);
 
     Map<String, Optional<Partition>> getPartitions(List<String> partitionNames);
 }
