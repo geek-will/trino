@@ -152,7 +152,7 @@ class HudiRecordCursors
         return column.getColumnType() == HiveColumnHandle.ColumnType.REGULAR;
     }
 
-    private static HudiFile getHudiBaseFile(HudiSplit hudiSplit)
+    public static HudiFile getHudiBaseFile(HudiSplit hudiSplit)
     {
         // use first log file as base file for MOR table if it hasn't base file
         if (hudiSplit.getBaseFile().isPresent()) {

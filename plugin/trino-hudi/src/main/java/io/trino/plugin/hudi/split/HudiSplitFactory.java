@@ -66,11 +66,14 @@ public class HudiSplitFactory
             return Stream.empty();
         }
 
-        FileStatus fileStatus = getFileStatus(baseFile.get());
         List<HudiFile> logFiles = fileSlice.getLogFiles()
                 .map(logFileStatus -> HudiFile.fromFileStatus(logFileStatus.getFileStatus()))
                 .collect(toImmutableList());
+        if (!baseFile.isPresent() && logFiles.size() == 0) {
+            return Stream.empty();
+        }
 
+        FileStatus fileStatus = getFileStatus(baseFile.get());
         List<FileSplit> splits;
         try {
             splits = createSplits(fileStatus);
@@ -86,15 +89,27 @@ public class HudiSplitFactory
             int start = i * step;
             int end = (i + 1) * step > logFiles.size() ? logFiles.size() : (i + 1) * step;
             FileSplit baseFileSplit = splits.get(i);
+            List<HudiFile> targetLogFiles = logFiles.subList(start, end);
+            final long sizeInBytes;
+            final Optional<HudiFile> optBaseHudiFile;
+            if (baseFileSplit.getPath() == null || baseFileSplit.getStart() < 0 || baseFileSplit.getLength() <= 0) {
+                optBaseHudiFile = Optional.empty();
+                sizeInBytes = targetLogFiles.size() > 0 ? targetLogFiles.stream().map(HudiFile::getLength).reduce(0L, Long::sum) : 0L;
+            }
+            else {
+                optBaseHudiFile = Optional.of(HudiFile.fromFileSplit(baseFileSplit));
+                sizeInBytes = baseFileSplit.getLength();
+            }
+
             hudiSplits.add(new HudiSplit(
                     partition.getTable(),
                     fileStatus.getModificationTime(),
-                    Optional.of(HudiFile.fromFileSplit(baseFileSplit)),
+                    optBaseHudiFile,
                     logFiles.subList(start, end),
                     ImmutableList.of(),
                     hudiTableHandle.getRegularPredicates(),
                     partitionKeys,
-                    hudiSplitWeightProvider.calculateSplitWeight(baseFileSplit.getLength()),
+                    hudiSplitWeightProvider.calculateSplitWeight(sizeInBytes),
                     timeLine));
         }
         return hudiSplits.stream();
