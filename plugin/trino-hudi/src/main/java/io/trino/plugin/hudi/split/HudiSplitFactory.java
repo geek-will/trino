@@ -105,7 +105,7 @@ public class HudiSplitFactory
                     partition.getTable(),
                     fileStatus.getModificationTime(),
                     optBaseHudiFile,
-                    logFiles.subList(start, end),
+                    targetLogFiles,
                     ImmutableList.of(),
                     hudiTableHandle.getRegularPredicates(),
                     partitionKeys,
