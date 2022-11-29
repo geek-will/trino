@@ -13,11 +13,14 @@
  */
 package io.trino.plugin.hudi;
 
+import io.trino.spi.TrinoException;
+
+import static io.trino.plugin.hudi.HudiErrorCode.HUDI_UNKNOWN_TABLE_TYPE;
+
 public enum HudiTableType
 {
     COW,
     MOR,
-    UNKNOWN,
     /**/;
 
     public static HudiTableType fromInputFormat(String inputFormat)
@@ -30,7 +33,7 @@ public enum HudiTableType
             case "com.uber.hoodie.hadoop.realtime.HoodieRealtimeInputFormat":
                 return MOR;
             default:
-                return UNKNOWN;
+                throw new TrinoException(HUDI_UNKNOWN_TABLE_TYPE, "Unknown hudi table inputFormat: " + inputFormat);
         }
     }
 }

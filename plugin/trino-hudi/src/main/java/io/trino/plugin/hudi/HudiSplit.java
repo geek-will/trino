@@ -143,7 +143,7 @@ public class HudiSplit
     public String toString()
     {
         return toStringHelper(this)
-                .addValue(fileModifiedTime)
+                .add("fileModifiedTime", fileModifiedTime)
                 .add("baseFile", baseFile)
                 .add("logFiles", logFiles)
                 .toString();

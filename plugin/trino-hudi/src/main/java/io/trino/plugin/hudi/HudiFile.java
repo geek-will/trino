@@ -21,6 +21,7 @@ import org.apache.hadoop.mapred.FileSplit;
 
 import java.util.Objects;
 
+import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static org.apache.parquet.Strings.isNullOrEmpty;
 
@@ -85,7 +86,11 @@ public class HudiFile
     @Override
     public String toString()
     {
-        return path + ":" + start + "+" + length;
+        return toStringHelper(this)
+                .add("path", path)
+                .add("start", start)
+                .add("length", length)
+                .toString();
     }
 
     public static HudiFile fromFileStatus(FileStatus fileStatus)
