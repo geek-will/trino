@@ -108,13 +108,13 @@ public final class HudiRealTimeDirectoryLister
     }
 
     @Override
-    public List<FileSlice> listFileSlice(HudiPartitionInfo partitionInfo, String timeLine)
+    public List<FileSlice> listFileSlice(HudiPartitionInfo partitionInfo, String timeInstant)
     {
-        if (timeLine == null) {
+        if (timeInstant == null) {
             // no completed instant for current table
             return ImmutableList.of();
         }
-        return fileSystemView.getLatestFileSlicesBeforeOrOn(partitionInfo.getRelativePartitionPath(), timeLine, false)
+        return fileSystemView.getLatestMergedFileSlicesBeforeOrOn(partitionInfo.getRelativePartitionPath(), timeInstant)
                 .collect(Collectors.toList());
     }
 
