@@ -62,10 +62,12 @@ import org.apache.hudi.index.HoodieIndex;
 import org.intellij.lang.annotations.Language;
 
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.time.LocalDate;
 import java.time.temporal.ChronoField;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -109,6 +111,7 @@ public class TpchHudiTablesInitializer
             new Column("_hoodie_partition_path", HIVE_STRING, Optional.empty(), Map.of()),
             new Column("_hoodie_file_name", HIVE_STRING, Optional.empty(), Map.of()));
     private static final HdfsContext CONTEXT = new HdfsContext(SESSION);
+    private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyyMMddHHmmssSSS");
 
     private final List<TpchTable<?>> tpchTables;
 
@@ -164,7 +167,7 @@ public class TpchHudiTablesInitializer
                     .map(MaterializedRow::getFields)
                     .map(recordConverter::toRecord)
                     .collect(Collectors.toList());
-            String timestamp = "0";
+            String timestamp = DATE_FORMAT.format(new Date());
             writeClient.startCommitWithTime(timestamp);
             writeClient.insert(records, timestamp);
         }

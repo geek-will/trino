@@ -79,6 +79,7 @@ public class ResourceHudiTablesInitializer
                     schemaName,
                     tablePath,
                     tableName,
+                    table.getInputFormat(),
                     table.getDataColumns(),
                     table.getPartitionColumns(),
                     table.getPartitions());
@@ -90,13 +91,14 @@ public class ResourceHudiTablesInitializer
             String schemaName,
             Location tablePath,
             String tableName,
+            String inputFormat,
             List<Column> dataColumns,
             List<Column> partitionColumns,
             Map<String, String> partitions)
     {
         StorageFormat storageFormat = StorageFormat.create(
                 PARQUET_HIVE_SERDE_CLASS,
-                HUDI_PARQUET_INPUT_FORMAT,
+                inputFormat,
                 MAPRED_PARQUET_OUTPUT_FORMAT_CLASS);
 
         Table table = Table.builder()
@@ -163,10 +165,11 @@ public class ResourceHudiTablesInitializer
 
     public enum TestingTable
     {
-        HUDI_NON_PART_COW(nonPartitionRegularColumns()),
-        HUDI_COW_PT_TBL(multiPartitionRegularColumns(), multiPartitionColumns(), multiPartitions()),
-        STOCK_TICKS_COW(stockTicksRegularColumns(), stockTicksPartitionColumns(), stockTicksPartitions()),
-        STOCK_TICKS_MOR(stockTicksRegularColumns(), stockTicksPartitionColumns(), stockTicksPartitions()),
+        HUDI_MOR_PURE_LOG(HUDI_PARQUET_REALTIME_INPUT_FORMAT, morPureLogNonPartitionRegularColumns()),
+        HUDI_NON_PART_COW(HUDI_PARQUET_INPUT_FORMAT, nonPartitionRegularColumns()),
+        HUDI_COW_PT_TBL(HUDI_PARQUET_INPUT_FORMAT, multiPartitionRegularColumns(), multiPartitionColumns(), multiPartitions()),
+        STOCK_TICKS_COW(HUDI_PARQUET_INPUT_FORMAT, stockTicksRegularColumns(), stockTicksPartitionColumns(), stockTicksPartitions()),
+        STOCK_TICKS_MOR(HUDI_PARQUET_REALTIME_INPUT_FORMAT, stockTicksRegularColumns(), stockTicksPartitionColumns(), stockTicksPartitions()),
         /**/;
 
         private static final List<Column> HUDI_META_COLUMNS = ImmutableList.of(
@@ -180,19 +183,23 @@ public class ResourceHudiTablesInitializer
         private final List<Column> partitionColumns;
         private final Map<String, String> partitions;
 
+        private final String inputFormat;
+
         TestingTable(
+                String inputFormat,
                 List<Column> regularColumns,
                 List<Column> partitionColumns,
                 Map<String, String> partitions)
         {
+            this.inputFormat = inputFormat;
             this.regularColumns = regularColumns;
             this.partitionColumns = partitionColumns;
             this.partitions = partitions;
         }
 
-        TestingTable(List<Column> regularColumns)
+        TestingTable(String inputFormat, List<Column> regularColumns)
         {
-            this(regularColumns, ImmutableList.of(), ImmutableMap.of());
+            this(inputFormat, regularColumns, ImmutableList.of(), ImmutableMap.of());
         }
 
         public String getTableName()
@@ -215,6 +222,24 @@ public class ResourceHudiTablesInitializer
         public Map<String, String> getPartitions()
         {
             return partitions;
+        }
+
+        public String getInputFormat()
+        {
+            return inputFormat;
+        }
+
+        private static List<Column> morPureLogNonPartitionRegularColumns()
+        {
+            return ImmutableList.of(
+                    column("c_custkey", HIVE_INT),
+                    column("c_name", HIVE_STRING),
+                    column("c_address", HIVE_STRING),
+                    column("c_nationkey", HIVE_INT),
+                    column("c_phone", HIVE_STRING),
+                    column("c_acctbal", HIVE_DOUBLE),
+                    column("c_mktsegment", HIVE_STRING),
+                    column("c_comment", HIVE_STRING));
         }
 
         private static List<Column> nonPartitionRegularColumns()
