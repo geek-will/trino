@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.hudi;
 
+import com.google.common.base.Joiner;
 import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
@@ -37,17 +38,20 @@ import org.apache.avro.Conversions;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.util.Utf8;
+import org.apache.commons.lang3.exception.UncheckedException;
 import org.apache.hudi.common.model.HoodieAvroIndexedRecord;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.hadoop.realtime.HoodieMergeOnReadSnapshotReader;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Verify.verify;
@@ -76,27 +80,21 @@ public class HudiAvroPageSource
     private static final Logger log = Logger.get(HudiAvroPageSource.class);
     private static final AvroDecimalConverter DECIMAL_CONVERTER = new AvroDecimalConverter();
 
-    private final HudiSplit hudiSplit;
-    private final Schema schema;
     private final Iterator<HoodieRecord> records;
     private final HoodieMergeOnReadSnapshotReader snapshotReader;
     private final PageBuilder pageBuilder;
     private final List<String> columnNames;
     private final List<Type> columnTypes;
     private final AtomicLong readBytes;
+    private boolean closed;
 
     public HudiAvroPageSource(
-            HudiSplit hudiSplit,
-            Schema schema,
-            Iterator<HoodieRecord> records,
-            HoodieMergeOnReadSnapshotReader snapshotReader,
             List<String> columnNames,
-            List<Type> columnTypes)
+            List<Type> columnTypes,
+            HoodieMergeOnReadSnapshotReader reader)
     {
-        this.hudiSplit = hudiSplit;
-        this.schema = schema;
-        this.records = records;
-        this.snapshotReader = snapshotReader;
+        this.snapshotReader = reader;
+        this.records = this.snapshotReader.getRecordsIterator();
         this.columnNames = columnNames;
         this.columnTypes = columnTypes;
         this.pageBuilder = new PageBuilder(columnTypes);
@@ -118,7 +116,7 @@ public class HudiAvroPageSource
     @Override
     public boolean isFinished()
     {
-        return !records.hasNext();
+        return closed && pageBuilder.isEmpty();
     }
 
     @Override
@@ -126,9 +124,11 @@ public class HudiAvroPageSource
     {
         checkState(pageBuilder.isEmpty(), "PageBuilder is not empty at the beginning of a new page");
         if (!records.hasNext()) {
+            closed = true;
             return null;
         }
-        while (records.hasNext()) {
+
+        while (records.hasNext() && !pageBuilder.isFull()) {
             HoodieRecord<HoodieAvroIndexedRecord> record = records.next();
             pageBuilder.declarePosition();
             for (int column = 0; column < columnTypes.size(); column++) {
@@ -136,6 +136,13 @@ public class HudiAvroPageSource
                 appendTo(columnTypes.get(column), record.getData(), output);
             }
         }
+
+        if ((closed && !pageBuilder.isEmpty()) || pageBuilder.isFull()) {
+            Page page = pageBuilder.build();
+            pageBuilder.reset();
+            return page;
+        }
+
         return null;
     }
 
@@ -271,6 +278,20 @@ public class HudiAvroPageSource
     public void close()
             throws IOException
     {
+        if (closed) {
+            return;
+        }
+        closed = true;
+
+        try {
+            snapshotReader.close();
+        }
+        catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        catch (Exception e) {
+            throw new UncheckedException(e);
+        }
     }
 
     static class AvroDecimalConverter
@@ -282,5 +303,10 @@ public class HudiAvroPageSource
             Schema schema = new Schema.Parser().parse(format("{\"type\":\"bytes\",\"logicalType\":\"decimal\",\"precision\":%d,\"scale\":%d}", precision, scale));
             return AVRO_DECIMAL_CONVERSION.fromBytes((ByteBuffer) value, schema, schema.getLogicalType());
         }
+    }
+
+    private static <T, V> String join(List<T> list, Function<T, V> extractor)
+    {
+        return Joiner.on(',').join(list.stream().map(extractor).iterator());
     }
 }

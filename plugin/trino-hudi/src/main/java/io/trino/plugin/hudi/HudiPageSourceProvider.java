@@ -13,12 +13,14 @@
  */
 package io.trino.plugin.hudi;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.inject.Inject;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.filesystem.TrinoInputFile;
+import io.trino.hdfs.HdfsContext;
 import io.trino.hdfs.HdfsEnvironment;
 import io.trino.memory.context.AggregatedMemoryContext;
 import io.trino.parquet.ParquetCorruptionException;
@@ -47,13 +49,16 @@ import io.trino.spi.connector.ConnectorSplit;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.DynamicFilter;
-import io.trino.spi.connector.RecordCursor;
-import io.trino.spi.connector.RecordPageSource;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.type.Decimals;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeManager;
 import io.trino.spi.type.TypeSignature;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.mapred.JobConf;
+import org.apache.hudi.common.model.HoodieLogFile;
+import org.apache.hudi.hadoop.realtime.HoodieMergeOnReadSnapshotReader;
 import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.hadoop.metadata.FileMetaData;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
@@ -72,6 +77,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.TimeZone;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -96,7 +102,6 @@ import static io.trino.plugin.hudi.HudiErrorCode.HUDI_CURSOR_ERROR;
 import static io.trino.plugin.hudi.HudiErrorCode.HUDI_INVALID_PARTITION_VALUE;
 import static io.trino.plugin.hudi.HudiErrorCode.HUDI_UNSUPPORTED_FILE_FORMAT;
 import static io.trino.plugin.hudi.HudiErrorCode.HUDI_UNSUPPORTED_TABLE_TYPE;
-import static io.trino.plugin.hudi.HudiRecordCursor.createRealtimeRecordCursor;
 import static io.trino.plugin.hudi.HudiSessionProperties.shouldUseParquetColumnNames;
 import static io.trino.plugin.hudi.HudiUtil.getHudiFileFormat;
 import static io.trino.plugin.hudi.model.HudiTableType.COPY_ON_WRITE;
@@ -124,6 +129,9 @@ import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toUnmodifiableList;
+import static org.apache.hadoop.hive.serde2.ColumnProjectionUtils.READ_ALL_COLUMNS;
+import static org.apache.hadoop.hive.serde2.ColumnProjectionUtils.READ_COLUMN_IDS_CONF_STR;
+import static org.apache.hadoop.hive.serde2.ColumnProjectionUtils.READ_COLUMN_NAMES_CONF_STR;
 
 public class HudiPageSourceProvider
         implements ConnectorPageSourceProvider
@@ -202,17 +210,15 @@ public class HudiPageSourceProvider
                     baseFile.getFileModifiedTime());
         }
         else if (tableHandle.getTableType().equals(MERGE_ON_READ)) {
-            RecordCursor recordCursor = createRealtimeRecordCursor(hdfsEnvironment, session, split, tableHandle, regularColumns);
-            List<Type> types = regularColumns.stream()
-                    .map(column -> column.getHiveType().getType(typeManager, DEFAULT_PRECISION))
-                    .collect(toImmutableList());
             HudiFile hudiFile = HudiUtil.getHudiBaseFile(split);
+            ConnectorPageSource avroPageSource = createAvroPageSource(tableHandle, split, regularColumns, session, hdfsEnvironment);
 
             return new HudiPageSource(
                     toPartitionName(split.getPartitionKeys()),
                     hiveColumns,
                     convertPartitionValues(hiveColumns, split.getPartitionKeys()), // create blocks for partition values
-                    new RecordPageSource(types, recordCursor),
+//                    new RecordPageSource(types, recordCursor),
+                    avroPageSource,
                     hudiFile.getLocation().toString(),
                     hudiFile.getFileLen(),
                     hudiFile.getFileModifiedTime());
@@ -308,6 +314,52 @@ public class HudiPageSourceProvider
         }
     }
 
+    private ConnectorPageSource createAvroPageSource(
+            HudiTableHandle tableHandle,
+            HudiSplit hudiSplit,
+            List<HiveColumnHandle> dataColumns,
+            ConnectorSession session,
+            HdfsEnvironment hdfsEnvironment)
+    {
+        HudiBaseFile baseFile = hudiSplit.getBaseFile().get();
+        String path = baseFile.getLocation().toString();
+        long start = baseFile.getOffset();
+        long length = baseFile.getFileLen();
+        try {
+            requireNonNull(session, "session is null");
+            checkArgument(dataColumns.stream().allMatch(HudiPageSourceProvider::isRegularColumn), "dataColumns contains non regular column");
+
+            Configuration configuration = hdfsEnvironment.getConfiguration(new HdfsContext(session), new Path(path));
+            JobConf jobConf = new JobConf(configuration);
+            jobConf.setBoolean(READ_ALL_COLUMNS, false);
+            jobConf.set(READ_COLUMN_IDS_CONF_STR, join(dataColumns, HiveColumnHandle::getBaseHiveColumnIndex));
+            jobConf.set(READ_COLUMN_NAMES_CONF_STR, join(dataColumns, HiveColumnHandle::getName));
+            tableHandle.getSchema().entrySet().forEach(entry -> jobConf.set(entry.getKey(), entry.getValue()));
+
+            HoodieMergeOnReadSnapshotReader reader = new HoodieMergeOnReadSnapshotReader(
+                    tableHandle.getBasePath(),
+                    baseFile.getLocation().path(),
+                    hudiSplit.getLogFiles().stream().map(file -> new HoodieLogFile(file.getLocation().toString())).collect(Collectors.toList()),
+                    hudiSplit.getCommitTime(),
+                    null,    // TODO: calculate schema
+                    jobConf,
+                    start,
+                    length);
+
+            List<String> names = dataColumns.stream()
+                    .map(col -> col.getName())
+                    .collect(toImmutableList());
+            List<Type> types = dataColumns.stream()
+                    .map(col -> col.getHiveType().getType(typeManager, DEFAULT_PRECISION))
+                    .collect(toImmutableList());
+            return new HudiAvroPageSource(names, types, reader);
+        }
+        catch (IOException e) {
+            String message = "Error opening Hudi split %s (offset=%s, length=%s): %s".formatted(path, start, length, e.getMessage());
+            throw new TrinoException(HUDI_CANNOT_OPEN_SPLIT, message, e);
+        }
+    }
+
     private static TrinoException handleException(ParquetDataSourceId dataSourceId, Exception exception)
     {
         if (exception instanceof TrinoException) {
@@ -393,5 +445,15 @@ public class HudiPageSourceProvider
             partitionValues.add(partition.getValue());
         }
         return makePartName(partitionNames.build(), partitionValues.build());
+    }
+
+    private static <T, V> String join(List<T> list, Function<T, V> extractor)
+    {
+        return Joiner.on(',').join(list.stream().map(extractor).iterator());
+    }
+
+    private static boolean isRegularColumn(HiveColumnHandle column)
+    {
+        return column.getColumnType() == HiveColumnHandle.ColumnType.REGULAR;
     }
 }

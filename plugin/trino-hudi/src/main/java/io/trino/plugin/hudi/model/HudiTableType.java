@@ -15,10 +15,10 @@ package io.trino.plugin.hudi.model;
 
 import io.trino.spi.TrinoException;
 
-import static io.trino.plugin.hive.util.HiveClassNames.HUDI_INPUT_FORMAT;
-import static io.trino.plugin.hive.util.HiveClassNames.HUDI_PARQUET_INPUT_FORMAT;
-import static io.trino.plugin.hive.util.HiveClassNames.HUDI_PARQUET_REALTIME_INPUT_FORMAT;
-import static io.trino.plugin.hive.util.HiveClassNames.HUDI_REALTIME_INPUT_FORMAT;
+import static io.trino.hive.formats.HiveClassNames.HUDI_INPUT_FORMAT;
+import static io.trino.hive.formats.HiveClassNames.HUDI_PARQUET_INPUT_FORMAT;
+import static io.trino.hive.formats.HiveClassNames.HUDI_PARQUET_REALTIME_INPUT_FORMAT;
+import static io.trino.hive.formats.HiveClassNames.HUDI_REALTIME_INPUT_FORMAT;
 import static io.trino.plugin.hudi.HudiErrorCode.HUDI_UNSUPPORTED_TABLE_TYPE;
 
 /**

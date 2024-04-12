@@ -98,6 +98,11 @@
 
         <dependency>
             <groupId>io.trino</groupId>
+            <artifactId>trino-hive-formats</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.trino</groupId>
             <artifactId>trino-memory-context</artifactId>
         </dependency>
 
@@ -143,14 +148,15 @@
         </dependency>
 
         <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+        </dependency>
+
+        <dependency>
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-common</artifactId>
             <version>${dep.hudi.version}</version>
             <exclusions>
-                <exclusion>
-                    <groupId>com.esotericsoftware</groupId>
-                    <artifactId>kryo-shaded</artifactId>
-                </exclusion>
                 <exclusion>
                     <groupId>com.fasterxml.jackson.core</groupId>
                     <artifactId>jackson-annotations</artifactId>
@@ -162,6 +168,10 @@
                 <exclusion>
                     <groupId>com.github.ben-manes.caffeine</groupId>
                     <artifactId>caffeine</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.commons</groupId>
+                    <artifactId>commons-lang3</artifactId>
                 </exclusion>
                 <exclusion>
                     <groupId>org.apache.hadoop</groupId>
@@ -289,22 +299,9 @@
         </dependency>
 
         <dependency>
-            <groupId>io.trino</groupId>
-            <artifactId>trino-hive-formats</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-
-        <dependency>
             <groupId>org.jetbrains</groupId>
             <artifactId>annotations</artifactId>
             <scope>runtime</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>com.esotericsoftware</groupId>
-            <artifactId>kryo-shaded</artifactId>
-            <version>4.0.3</version>
-            <scope>test</scope>
         </dependency>
 
         <dependency>

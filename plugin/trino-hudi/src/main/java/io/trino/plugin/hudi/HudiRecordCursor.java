@@ -76,7 +76,7 @@ public class HudiRecordCursor
         });
     }
 
-    private static RecordReader<?, ?> createRecordReader(
+    private static RecordReader createRecordReader(
             Configuration configuration,
             Map<String, String> schema,
             HudiSplit split,
@@ -101,6 +101,7 @@ public class HudiRecordCursor
                     .map(file -> new HoodieLogFile(file.getLocation().toString())).collect(toList());
             FileSplit hudiSplit = new HoodieRealtimeFileSplit(fileSplit, basePath, logFiles, split.getCommitTime(), false, Option.empty());
             Class<?> clazz = jobConf.getClassByName(inputFormatName);
+
             @SuppressWarnings("unchecked") Class<? extends InputFormat<?, ?>> cls = (Class<? extends InputFormat<?, ?>>) clazz.asSubclass(InputFormat.class);
             InputFormat<?, ?> inputFormat = ReflectionUtils.newInstance(cls, jobConf);
             return inputFormat.getRecordReader(hudiSplit, jobConf, Reporter.NULL);
